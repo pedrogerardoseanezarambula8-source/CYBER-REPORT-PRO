@@ -1,5 +1,5 @@
 // Nombre del caché - Actualizado a v2 para forzar la actualización en el dispositivo
-const CACHE_NAME = 'cyberreport-v2';
+const CACHE_NAME = 'cyberreport-v3';
 
 // Lista de archivos necesarios para que la app abra sin internet
 const ASSETS = [
