@@ -1,11 +1,16 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <link rel="./icon-512.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>CyberReport Pro - Pedro Seañez</title>
+    
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icon-512.png">
+    <meta name="theme-color" content="#0a0b0d">
+
     <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
@@ -119,7 +124,7 @@
     <div id="preview-modal">
         <iframe id="preview-frame"></iframe>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px">
-            <button class="btn btn-primary" onclick="$('preview-modal').style.display='none'">Cerrar</button>
+            <button class="btn btn-primary" onclick="closePreview()">Cerrar</button>
             <button class="btn btn-outline" id="download-from-preview">Guardar</button>
             <button class="btn btn-primary" style="grid-column: span 2; background:#25d366; color:black" id="share-pdf-btn">📤 Compartir (WhatsApp / Otros)</button>
         </div>
@@ -127,9 +132,9 @@
 
     <script>
         const $ = id => document.getElementById(id);
-        let appData = { logo: null, photos: [], pdfBlob: null };
+        let appData = { logo: null, photos: [], pdfBlob: null, previewUrl: null };
 
-        // Lógica de Firmas Multi-Canvas
+        // --- Lógica de Firmas Multi-Canvas ---
         const canvases = { 'sig-author': null, 'sig-client': null };
         function initCanvases() {
             Object.keys(canvases).forEach(id => {
@@ -148,24 +153,22 @@
                     const y = e.touches ? e.touches[0].clientY : e.clientY;
                     return { x: x - r.left, y: y - r.top };
                 };
-
                 const start = e => { drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); if(e.touches) e.preventDefault(); };
                 const move = e => { if(!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); if(e.touches) e.preventDefault(); };
                 const stop = () => drawing = false;
-
                 cvs.addEventListener('mousedown', start); cvs.addEventListener('mousemove', move); window.addEventListener('mouseup', stop);
                 cvs.addEventListener('touchstart', start, {passive:false}); cvs.addEventListener('touchmove', move, {passive:false}); cvs.addEventListener('touchend', stop);
             });
         }
 
         function clearSig(id) { const cvs = $(id); cvs.getContext('2d').clearRect(0,0,cvs.width,cvs.height); }
-        
         function toggleSignaturePanels() {
             const val = $('pdf-use-signature').value;
             $('author-sig-card').style.display = (val === 'author' || val === 'both') ? 'block' : 'none';
             $('client-sig-card').style.display = (val === 'both') ? 'block' : 'none';
         }
 
+        // --- Manejo de Datos ---
         window.onload = async () => {
             initCanvases();
             toggleSignaturePanels();
@@ -185,12 +188,12 @@
 
         function uploadLogo(input) {
             if(!input.files[0]) return;
-            resizeImg(input.files[0], 400, 0.9, b64 => { appData.logo = b64; localforage.setItem('logo', b64); alert("Logo guardado"); });
+            resizeImg(input.files[0], 300, 0.7, b64 => { appData.logo = b64; localforage.setItem('logo', b64); });
         }
 
         function processPhotos(input) {
             Array.from(input.files).forEach(file => {
-                resizeImg(file, 1200, 0.7, b64 => {
+                resizeImg(file, 1000, 0.6, b64 => { // Resolución optimizada para PDF ligero
                     appData.photos.push({ id: Date.now()+Math.random(), src: b64, desc: '', status: 'Proceso' });
                     renderPhotos();
                 });
@@ -222,6 +225,7 @@
         const removePhoto = (id) => { appData.photos = appData.photos.filter(i => i.id !== id); renderPhotos(); };
         const clearAll = () => { if(confirm("¿Vaciara todo?")) { appData.photos = []; renderPhotos(); clearSig('sig-author'); clearSig('sig-client'); } };
 
+        // --- Motor de Compresión (PDF Ligero) ---
         function resizeImg(file, max, qual, cb) {
             const r = new FileReader(); r.onload = e => {
                 const img = new Image(); img.onload = () => {
@@ -229,12 +233,16 @@
                     let w = img.width, h = img.height;
                     if(w > max) { h *= max/w; w = max; }
                     cvs.width = w; cvs.height = h;
-                    cvs.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const ctx = cvs.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, w, h);
                     cb(cvs.toDataURL('image/jpeg', qual));
                 }; img.src = e.target.result;
             }; r.readAsDataURL(file);
         }
 
+        // --- Generación de PDF ---
         async function preparePDF(downloadDirect) {
             if(appData.photos.length === 0) return alert("Agregue fotos.");
             const { jsPDF } = window.jspdf;
@@ -244,7 +252,7 @@
             const showDesc = $('pdf-show-desc').value === 'yes';
             const sigMode = $('pdf-use-signature').value;
                         
-            const pdf = new jsPDF(orient, 'mm', size);
+            const pdf = new jsPDF(orient, 'mm', size, true); // True para comprimir PDF internamente
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             const margin = 15;
@@ -253,7 +261,7 @@
 
             while (currentIdx < appData.photos.length) {
                 if (currentIdx > 0) pdf.addPage(size, orient);
-                if(appData.logo) pdf.addImage(appData.logo, 'JPEG', margin, 8, 35, 18);
+                if(appData.logo) pdf.addImage(appData.logo, 'JPEG', margin, 8, 35, 18, undefined, 'FAST');
                 pdf.setFontSize(14).setFont(undefined, 'bold').setTextColor(30).text($('rep-title').value.toUpperCase() || 'REPORTE TÉCNICO', 55, 18);
                 pdf.setFontSize(8).setFont(undefined, 'normal').setTextColor(100);
                 pdf.text(`UBICACIÓN: ${$('rep-location').value.toUpperCase()} | ÁREA: ${$('rep-area').value.toUpperCase()}`, margin, 32);
@@ -265,7 +273,7 @@
 
                 if (layout === 1) {
                     const p = appData.photos[currentIdx];
-                    pdf.addImage(p.src, 'JPEG', margin, yStart, pageWidth - (margin*2), availableHeight);
+                    pdf.addImage(p.src, 'JPEG', margin, yStart, pageWidth - (margin*2), availableHeight, undefined, 'FAST');
                     if(showDesc) {
                         pdf.setFillColor(0,0,0,0.5).rect(margin, yStart + availableHeight - 12, pageWidth-(margin*2), 12, 'F');
                         pdf.setTextColor(255).setFontSize(8);
@@ -281,7 +289,7 @@
                         const currY = yStart + (j * itemH);
                         const imgW = showDesc ? (pageWidth - margin*2) * 0.55 : (pageWidth - margin*2);
                         const imgH = itemH - 8;
-                        pdf.addImage(p.src, 'JPEG', margin, currY, imgW, imgH);
+                        pdf.addImage(p.src, 'JPEG', margin, currY, imgW, imgH, undefined, 'FAST');
                         if (showDesc) {
                             const textX = margin + imgW + 5;
                             const textW = (pageWidth - margin*2) - imgW - 5;
@@ -298,24 +306,20 @@
                 pdf.setFontSize(8).setTextColor(150).text(`${pdf.internal.getNumberOfPages()}`, pageWidth / 2, pageHeight - 10, {align: 'center'});
             }
 
-            // Página Final de Firmas
             if (sigMode !== 'none') {
                 pdf.addPage(size, orient);
                 pdf.setFontSize(12).setTextColor(30).setFont(undefined, 'bold').text("VALIDACIÓN Y CIERRE DE REPORTE", margin, 25);
                 pdf.setDrawColor(200).line(margin, 28, pageWidth - margin, 28);
-                
-                // Firma Autor
                 pdf.addImage($('sig-author').toDataURL('image/png'), 'PNG', margin, 40, 60, 30);
                 pdf.line(margin, 70, margin + 65, 70);
                 pdf.setFontSize(9).text($('rep-author').value.toUpperCase(), margin, 75);
-                pdf.setFont(undefined, 'normal').text("Responsable Técnico", margin, 79);
+                pdf.text("Responsable Técnico", margin, 79);
 
-                // Firma Cliente
                 if (sigMode === 'both') {
                     pdf.addImage($('sig-client').toDataURL('image/png'), 'PNG', pageWidth - margin - 65, 40, 60, 30);
                     pdf.line(pageWidth - margin - 65, 70, pageWidth - margin, 70);
                     pdf.setFont(undefined, 'bold').text($('client-name').value.toUpperCase() || "CLIENTE", pageWidth - margin, 75, {align:'right'});
-                    pdf.setFont(undefined, 'normal').text("Recibe de Conformidad", pageWidth - margin, 79, {align:'right'});
+                    pdf.text("Recibe de Conformidad", pageWidth - margin, 79, {align:'right'});
                 }
             }
 
@@ -325,30 +329,35 @@
             if(downloadDirect) {
                 pdf.save(fileName);
             } else {
-                $('preview-frame').src = URL.createObjectURL(appData.pdfBlob);
+                if(appData.previewUrl) URL.revokeObjectURL(appData.previewUrl);
+                appData.previewUrl = URL.createObjectURL(appData.pdfBlob);
+                $('preview-frame').src = appData.previewUrl;
                 $('preview-modal').style.display = 'flex';
                 $('download-from-preview').onclick = () => pdf.save(fileName);
                 $('share-pdf-btn').onclick = () => {
                     const file = new File([appData.pdfBlob], fileName, { type: 'application/pdf' });
                     if (navigator.share) {
-                        navigator.share({ files: [file], title: 'Reporte Cybertech', text: 'Adjunto reporte técnico fotográfico.' });
-                    } else { alert("Tu navegador no soporta compartir directamente."); }
+                        navigator.share({ files: [file], title: 'Reporte Cybertech' }).catch(() => {});
+                    } else { alert("Navegador no compatible con compartir."); }
                 };
             }
         }
+
+        function closePreview() {
+            $('preview-modal').style.display = 'none';
+            if(appData.previewUrl) { URL.revokeObjectURL(appData.previewUrl); appData.previewUrl = null; }
+        }
     </script>
 
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('SW registrado', reg))
-        .catch(err => console.log('Error SW', err));
-    });
-  }
-</script>
-<link rel="manifest" href="manifest.json">
-
-    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Se usa ruta absoluta para GitHub Pages
+                navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('CyberReport PWA Activa'))
+                .catch(err => console.error('Error PWA:', err));
+            });
+        }
+    </script>
 </body>
 </html>
