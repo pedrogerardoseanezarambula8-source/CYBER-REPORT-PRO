@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>CyberReport Pro - Pedro Seañez</title>
+    <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0a0b0d; --bg-card: #14171c; --accent: #00f2ff;
+            --border: #2d343d; --text-p: #94a3b8; --text-h: #f8fafc;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body { 
+            background-color: var(--bg-dark); 
+            color: var(--text-h); 
+            font-family: -apple-system, sans-serif;
+            padding-bottom: 40px;
+        }
+        .header { background: rgba(20, 23, 28, 0.95); padding: 20px; border-bottom: 1px solid var(--border); text-align: center; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px); }
+        .header h1 { font-size: 1.1rem; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; }
+        .header p { font-size: 0.7rem; color: #fff; margin-top: 4px; font-weight: 300; }
+        .container { width: 92%; max-width: 800px; margin: 20px auto; }
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+        .card-title { font-size: 0.75rem; font-weight: 800; color: var(--accent); text-transform: uppercase; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .field { margin-bottom: 15px; }
+        label { display: block; font-size: 0.65rem; color: var(--text-p); margin-bottom: 5px; text-transform: uppercase; }
+        input, textarea, select { 
+            width: 100%; background: #000; border: 1px solid var(--border); color: white; 
+            padding: 12px; border-radius: 10px; font-size: 16px;
+        }
+        .photo-card { display: flex; gap: 15px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 15px; }
+        @media (max-width: 550px) { .photo-card { flex-direction: column; } }
+        .photo-preview { width: 100px; height: 100px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+        .btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; text-transform: uppercase; font-size: 0.8rem; margin-top: 10px; transition: 0.3s; }
+        .btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+        .btn-primary { background: var(--accent); color: var(--bg-dark); box-shadow: 0 4px 15px rgba(0, 242, 255, 0.3); }
+        .btn-danger { background: #450a0a; color: #f87171; width: auto; padding: 10px 15px; font-size: 0.65rem; }
+        
+        .signature-box { background: white; border-radius: 10px; margin-top: 10px; touch-action: none; overflow: hidden; }
+        .sig-canvas { width: 100%; height: 160px; cursor: crosshair; display: block; }
+
+        #preview-modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 1000; flex-direction: column; padding: 20px;
+        }
+        #preview-frame { width: 100%; height: 75%; border-radius: 10px; background: white; border: none; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>CYBER-REPORT <span style="color:white">PRO</span></h1>
+        <p>Desarrollado por: **Pedro Seañez**</p>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-title">◈ Información General</div>
+            <div class="field"><label>Nombre del Proyecto / Folio</label><input type="text" id="rep-title" oninput="saveTextData()"></div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px">
+                <div class="field"><label>Ubicación</label><input type="text" id="rep-location" oninput="saveTextData()"></div>
+                <div class="field"><label>Área / Sección</label><input type="text" id="rep-area" oninput="saveTextData()"></div>
+            </div>
+            <div class="field"><label>Autor del Reporte</label><input type="text" id="rep-author" oninput="saveTextData()"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">◈ Registro de Evidencia</div>
+            <div style="display:flex; gap:12px">
+                <button class="btn btn-outline" onclick="$('cam-in').click()">📸 Cámara</button>
+                <button class="btn btn-outline" onclick="$('gal-in').click()">📁 Galería</button>
+            </div>
+            <input type="file" id="cam-in" hidden accept="image/*" capture="environment" onchange="processPhotos(this)">
+            <input type="file" id="gal-in" hidden accept="image/*" multiple onchange="processPhotos(this)">
+            <div id="photo-list" style="margin-top:20px"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">⚙ Ajustes del Documento</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap:12px">
+                <div class="field"><label>Tamaño Papel</label><select id="pdf-size"><option value="letter">Carta</option><option value="legal">Oficio</option><option value="a4" selected>A4</option></select></div>
+                <div class="field"><label>Orientación</label><select id="pdf-orient"><option value="p">Vertical</option><option value="l">Horizontal</option></select></div>
+                <div class="field"><label>Fotos / Hoja</label><select id="pdf-layout"><option value="1">1 (Full)</option><option value="2" selected>2 (Lista)</option><option value="3">3 (Lista)</option></select></div>
+                <div class="field"><label>Comentarios</label><select id="pdf-show-desc"><option value="yes">Mostrar</option><option value="no">Ocultar</option></select></div>
+                <div class="field" style="grid-column: span 2">
+                    <label>Firmas Digitales</label>
+                    <select id="pdf-use-signature" onchange="toggleSignaturePanels()">
+                        <option value="none">❌ Sin Firmas</option>
+                        <option value="author">👤 Solo Autor</option>
+                        <option value="both" selected>👥 Autor y Cliente</option>
+                    </select>
+                </div>
+                <div class="field" style="grid-column: span 2"><button class="btn btn-outline" style="margin:0" onclick="$('logo-input').click()">Actualizar Logo</button><input type="file" id="logo-input" hidden accept="image/*" onchange="uploadLogo(this)"></div>
+            </div>
+        </div>
+
+        <div id="author-sig-card" class="card">
+            <div class="card-title">✍ Firma Autor (Pedro Seañez)</div>
+            <div class="signature-box"><canvas id="sig-author" class="sig-canvas"></canvas></div>
+            <button class="btn btn-outline" style="padding:5px; font-size:0.6rem" onclick="clearSig('sig-author')">Limpiar</button>
+        </div>
+
+        <div id="client-sig-card" class="card">
+            <div class="card-title">✍ Firma de Conformidad Cliente</div>
+            <div class="field"><label>Nombre de quien recibe</label><input type="text" id="client-name" placeholder="Nombre completo"></div>
+            <div class="signature-box"><canvas id="sig-client" class="sig-canvas"></canvas></div>
+            <button class="btn btn-outline" style="padding:5px; font-size:0.6rem" onclick="clearSig('sig-client')">Limpiar</button>
+        </div>
+
+        <button class="btn btn-primary" style="padding:22px; font-size:1.1rem" onclick="preparePDF(false)">👁️ Ver Vista Previa</button>
+        <button class="btn btn-outline" onclick="preparePDF(true)">📥 Descargar Reporte</button>
+        <button class="btn" style="background:#1e293b; color:#94a3b8; font-size: 0.65rem" onclick="clearAll()">Borrar Todo</button>
+    </div>
+
+    <div id="preview-modal">
+        <iframe id="preview-frame"></iframe>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px">
+            <button class="btn btn-primary" onclick="$('preview-modal').style.display='none'">Cerrar</button>
+            <button class="btn btn-outline" id="download-from-preview">Guardar</button>
+            <button class="btn btn-primary" style="grid-column: span 2; background:#25d366; color:black" id="share-pdf-btn">📤 Compartir (WhatsApp / Otros)</button>
+        </div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        let appData = { logo: null, photos: [], pdfBlob: null };
+
+        // Lógica de Firmas Multi-Canvas
+        const canvases = { 'sig-author': null, 'sig-client': null };
+        function initCanvases() {
+            Object.keys(canvases).forEach(id => {
+                const cvs = $(id);
+                const ctx = cvs.getContext('2d');
+                const ratio = window.devicePixelRatio || 1;
+                cvs.width = cvs.offsetWidth * ratio;
+                cvs.height = cvs.offsetHeight * ratio;
+                ctx.scale(ratio, ratio);
+                ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#000";
+                
+                let drawing = false;
+                const getPos = e => {
+                    const r = cvs.getBoundingClientRect();
+                    const x = e.touches ? e.touches[0].clientX : e.clientX;
+                    const y = e.touches ? e.touches[0].clientY : e.clientY;
+                    return { x: x - r.left, y: y - r.top };
+                };
+
+                const start = e => { drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); if(e.touches) e.preventDefault(); };
+                const move = e => { if(!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); if(e.touches) e.preventDefault(); };
+                const stop = () => drawing = false;
+
+                cvs.addEventListener('mousedown', start); cvs.addEventListener('mousemove', move); window.addEventListener('mouseup', stop);
+                cvs.addEventListener('touchstart', start, {passive:false}); cvs.addEventListener('touchmove', move, {passive:false}); cvs.addEventListener('touchend', stop);
+            });
+        }
+
+        function clearSig(id) { const cvs = $(id); cvs.getContext('2d').clearRect(0,0,cvs.width,cvs.height); }
+        
+        function toggleSignaturePanels() {
+            const val = $('pdf-use-signature').value;
+            $('author-sig-card').style.display = (val === 'author' || val === 'both') ? 'block' : 'none';
+            $('client-sig-card').style.display = (val === 'both') ? 'block' : 'none';
+        }
+
+        window.onload = async () => {
+            initCanvases();
+            toggleSignaturePanels();
+            appData.logo = await localforage.getItem('logo');
+            $('rep-title').value = await localforage.getItem('title') || '';
+            $('rep-location').value = await localforage.getItem('location') || '';
+            $('rep-area').value = await localforage.getItem('area') || '';
+            $('rep-author').value = await localforage.getItem('author') || 'Pedro Seañez';
+        };
+
+        function saveTextData() {
+            localforage.setItem('title', $('rep-title').value);
+            localforage.setItem('location', $('rep-location').value);
+            localforage.setItem('area', $('rep-area').value);
+            localforage.setItem('author', $('rep-author').value);
+        }
+
+        function uploadLogo(input) {
+            if(!input.files[0]) return;
+            resizeImg(input.files[0], 400, 0.9, b64 => { appData.logo = b64; localforage.setItem('logo', b64); alert("Logo guardado"); });
+        }
+
+        function processPhotos(input) {
+            Array.from(input.files).forEach(file => {
+                resizeImg(file, 1200, 0.7, b64 => {
+                    appData.photos.push({ id: Date.now()+Math.random(), src: b64, desc: '', status: 'Proceso' });
+                    renderPhotos();
+                });
+            });
+            input.value = '';
+        }
+
+        function renderPhotos() {
+            const container = $('photo-list'); container.innerHTML = '';
+            appData.photos.forEach(p => {
+                const div = document.createElement('div');
+                div.className = `photo-card`;
+                div.innerHTML = `
+                    <img src="${p.src}" class="photo-preview">
+                    <div style="flex:1; display:flex; flex-direction:column; gap:8px">
+                        <select onchange="updatePhoto(${p.id}, 'status', this.value)">
+                            <option value="Proceso" ${p.status=='Proceso'?'selected':''}>🟠 Proceso</option>
+                            <option value="Terminado" ${p.status=='Terminado'?'selected':''}>🟢 Terminado</option>
+                            <option value="Revision" ${p.status=='Revision'?'selected':''}>🔴 Revisión</option>
+                        </select>
+                        <textarea placeholder="Descripción técnica..." oninput="updatePhoto(${p.id}, 'desc', this.value)">${p.desc}</textarea>
+                        <button class="btn btn-danger" onclick="removePhoto(${p.id})">Quitar</button>
+                    </div>`;
+                container.appendChild(div);
+            });
+        }
+
+        const updatePhoto = (id, k, v) => { const p = appData.photos.find(i => i.id === id); if(p) p[k] = v; };
+        const removePhoto = (id) => { appData.photos = appData.photos.filter(i => i.id !== id); renderPhotos(); };
+        const clearAll = () => { if(confirm("¿Vaciara todo?")) { appData.photos = []; renderPhotos(); clearSig('sig-author'); clearSig('sig-client'); } };
+
+        function resizeImg(file, max, qual, cb) {
+            const r = new FileReader(); r.onload = e => {
+                const img = new Image(); img.onload = () => {
+                    const cvs = document.createElement('canvas');
+                    let w = img.width, h = img.height;
+                    if(w > max) { h *= max/w; w = max; }
+                    cvs.width = w; cvs.height = h;
+                    cvs.getContext('2d').drawImage(img, 0, 0, w, h);
+                    cb(cvs.toDataURL('image/jpeg', qual));
+                }; img.src = e.target.result;
+            }; r.readAsDataURL(file);
+        }
+
+        async function preparePDF(downloadDirect) {
+            if(appData.photos.length === 0) return alert("Agregue fotos.");
+            const { jsPDF } = window.jspdf;
+            const orient = $('pdf-orient').value;
+            const size = $('pdf-size').value;
+            const layout = parseInt($('pdf-layout').value);
+            const showDesc = $('pdf-show-desc').value === 'yes';
+            const sigMode = $('pdf-use-signature').value;
+                        
+            const pdf = new jsPDF(orient, 'mm', size);
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 15;
+            let currentIdx = 0;
+            const dateStr = new Date().toLocaleDateString();
+
+            while (currentIdx < appData.photos.length) {
+                if (currentIdx > 0) pdf.addPage(size, orient);
+                if(appData.logo) pdf.addImage(appData.logo, 'JPEG', margin, 8, 35, 18);
+                pdf.setFontSize(14).setFont(undefined, 'bold').setTextColor(30).text($('rep-title').value.toUpperCase() || 'REPORTE TÉCNICO', 55, 18);
+                pdf.setFontSize(8).setFont(undefined, 'normal').setTextColor(100);
+                pdf.text(`UBICACIÓN: ${$('rep-location').value.toUpperCase()} | ÁREA: ${$('rep-area').value.toUpperCase()}`, margin, 32);
+                pdf.text(`AUTOR: ${$('rep-author').value.toUpperCase()} | FECHA: ${dateStr}`, pageWidth - margin, 32, {align: 'right'});
+                pdf.setDrawColor(220).line(margin, 34, pageWidth - margin, 34);
+
+                let yStart = 42;
+                let availableHeight = pageHeight - yStart - 20;
+
+                if (layout === 1) {
+                    const p = appData.photos[currentIdx];
+                    pdf.addImage(p.src, 'JPEG', margin, yStart, pageWidth - (margin*2), availableHeight);
+                    if(showDesc) {
+                        pdf.setFillColor(0,0,0,0.5).rect(margin, yStart + availableHeight - 12, pageWidth-(margin*2), 12, 'F');
+                        pdf.setTextColor(255).setFontSize(8);
+                        pdf.setFont(undefined, 'bold').text(`[${p.status.toUpperCase()}]`, margin + 5, yStart + availableHeight - 5);
+                        pdf.setFont(undefined, 'normal').text(` ${p.desc || "Sin descripción"}`, margin + 25, yStart + availableHeight - 5);
+                    }
+                    currentIdx++;
+                } else {
+                    const items = layout;
+                    const itemH = availableHeight / items;
+                    for (let j = 0; j < items && currentIdx < appData.photos.length; j++) {
+                        const p = appData.photos[currentIdx];
+                        const currY = yStart + (j * itemH);
+                        const imgW = showDesc ? (pageWidth - margin*2) * 0.55 : (pageWidth - margin*2);
+                        const imgH = itemH - 8;
+                        pdf.addImage(p.src, 'JPEG', margin, currY, imgW, imgH);
+                        if (showDesc) {
+                            const textX = margin + imgW + 5;
+                            const textW = (pageWidth - margin*2) - imgW - 5;
+                            pdf.setDrawColor(240).rect(textX, currY, textW, imgH);
+                            pdf.setTextColor(60).setFontSize(8);
+                            pdf.setFont(undefined, 'bold').text(`[${p.status.toUpperCase()}]`, textX + 4, currY + 8);
+                            pdf.setFont(undefined, 'normal');
+                            const lines = pdf.splitTextToSize(p.desc || 'Sin observaciones.', textW - 8);
+                            pdf.text(lines, textX + 4, currY + 15);
+                        }
+                        currentIdx++;
+                    }
+                }
+                pdf.setFontSize(8).setTextColor(150).text(`${pdf.internal.getNumberOfPages()}`, pageWidth / 2, pageHeight - 10, {align: 'center'});
+            }
+
+            // Página Final de Firmas
+            if (sigMode !== 'none') {
+                pdf.addPage(size, orient);
+                pdf.setFontSize(12).setTextColor(30).setFont(undefined, 'bold').text("VALIDACIÓN Y CIERRE DE REPORTE", margin, 25);
+                pdf.setDrawColor(200).line(margin, 28, pageWidth - margin, 28);
+                
+                // Firma Autor
+                pdf.addImage($('sig-author').toDataURL('image/png'), 'PNG', margin, 40, 60, 30);
+                pdf.line(margin, 70, margin + 65, 70);
+                pdf.setFontSize(9).text($('rep-author').value.toUpperCase(), margin, 75);
+                pdf.setFont(undefined, 'normal').text("Responsable Técnico", margin, 79);
+
+                // Firma Cliente
+                if (sigMode === 'both') {
+                    pdf.addImage($('sig-client').toDataURL('image/png'), 'PNG', pageWidth - margin - 65, 40, 60, 30);
+                    pdf.line(pageWidth - margin - 65, 70, pageWidth - margin, 70);
+                    pdf.setFont(undefined, 'bold').text($('client-name').value.toUpperCase() || "CLIENTE", pageWidth - margin, 75, {align:'right'});
+                    pdf.setFont(undefined, 'normal').text("Recibe de Conformidad", pageWidth - margin, 79, {align:'right'});
+                }
+            }
+
+            const fileName = `Reporte_Cybertech_${Date.now()}.pdf`;
+            appData.pdfBlob = pdf.output('blob');
+
+            if(downloadDirect) {
+                pdf.save(fileName);
+            } else {
+                $('preview-frame').src = URL.createObjectURL(appData.pdfBlob);
+                $('preview-modal').style.display = 'flex';
+                $('download-from-preview').onclick = () => pdf.save(fileName);
+                $('share-pdf-btn').onclick = () => {
+                    const file = new File([appData.pdfBlob], fileName, { type: 'application/pdf' });
+                    if (navigator.share) {
+                        navigator.share({ files: [file], title: 'Reporte Cybertech', text: 'Adjunto reporte técnico fotográfico.' });
+                    } else { alert("Tu navegador no soporta compartir directamente."); }
+                };
+            }
+        }
+    </script>
+</body>
+</html>
